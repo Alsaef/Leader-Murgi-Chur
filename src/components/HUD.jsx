@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 const HUD = ({ stats, highScore, isMuted, onToggleMute }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const energy = stats.energy || 0;
-  const isLowEnergy = energy < 30;
+  const isLowEnergy = energy < 35;
 
   useEffect(() => {
     const handleFsChange = () => {
@@ -83,16 +83,22 @@ const HUD = ({ stats, highScore, isMuted, onToggleMute }) => {
             ⚡ লিডারের এনার্জি: {toBengaliNumber(energy)}%
             {isLowEnergy && <span className="danger-alert"> ⚠️ ঘাম ছুটছে! গণধোলাই আসন্ন!</span>}
           </span>
-          {stats.isBoosted && (
+          {stats.isBikeRush ? (
+            <span className="hud-bike-badge blink-boost">
+              🛺 সিএনজি রাশ! ({toBengaliNumber(Math.ceil((stats.bikePercent || 0) / 20))} সে.)
+            </span>
+          ) : stats.isBoosted ? (
             <span className="hud-boost-badge blink-boost">
               🔥 লিডার পাওয়ার! ({toBengaliNumber(Math.ceil((stats.boostPercent || 0) / 28))} সে.)
             </span>
-          )}
+          ) : null}
         </div>
         <div className="hud-energy-bar-bg">
           <div
             className={`hud-energy-bar-fill ${
-              stats.isBoosted
+              stats.isBikeRush
+                ? 'fill-bike'
+                : stats.isBoosted
                 ? 'fill-boost'
                 : isLowEnergy
                 ? 'fill-low'

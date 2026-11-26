@@ -1,7 +1,9 @@
 // Utility to generate a high-quality viral scorecard image for "Leader Murgi Chur"
-// Includes the crying leader photo, stats grid, and Bengali news styling
+// Includes the crying leader photo, earned rank badge, stats grid, and Bengali news styling
+import { getLeaderRank } from './constants';
 
 export async function generateScoreCardBlob(stats, headline, bengaliDigitsFn) {
+  const rank = getLeaderRank(stats.score || 0);
   const canvas = document.createElement('canvas');
   const width = 840;
   const height = 540;
@@ -68,8 +70,8 @@ export async function generateScoreCardBlob(stats, headline, bengaliDigitsFn) {
     });
 
     const photoX = 42;
-    const photoY = 145;
-    const photoSize = 190;
+    const photoY = 140;
+    const photoSize = 186;
 
     if (cryingImg) {
       ctx.save();
@@ -102,10 +104,10 @@ export async function generateScoreCardBlob(stats, headline, bengaliDigitsFn) {
   }
 
   // Draw Stats Grid on the right side
-  const gridX = 255;
-  const gridY = 145;
-  const boxW = 265;
-  const boxH = 90;
+  const gridX = 250;
+  const gridY = 140;
+  const boxW = 268;
+  const boxH = 87;
   const gap = 12;
 
   const toB = bengaliDigitsFn || ((n) => String(n));
@@ -163,34 +165,52 @@ export async function generateScoreCardBlob(stats, headline, bengaliDigitsFn) {
     ctx.fillText(item.value, bx + boxW / 2, by + 68);
   });
 
-  // Dramatic Quote Banner below stats
+  // Leader Rank Banner
+  ctx.fillStyle = rank.bg;
+  ctx.strokeStyle = rank.border;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(42, 340, width - 84, 44, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = rank.color;
+  ctx.font = 'bold 17px "Hind Siliguri", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(
+    `${rank.badge} অর্জিত পদবি: ${rank.title}  •  ${rank.subtitle}`,
+    width / 2,
+    368
+  );
+
+  // Dramatic Quote Banner below rank
   ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
   ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.roundRect(42, 355, width - 84, 52, 10);
+  ctx.roundRect(42, 394, width - 84, 44, 10);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = '#fca5a5';
-  ctx.font = 'italic 600 15px "Hind Siliguri", sans-serif';
+  ctx.font = 'italic 600 14.5px "Hind Siliguri", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('লিডারের আকুতি: "আমি তো শুধু মুরগিটা দেখতে চাইছিলাম, সবাই ধইরা এভাবে ধোলাই দিল কেন?!" 😭🐔', width / 2, 386);
+  ctx.fillText('লিডারের আকুতি: "আমি তো শুধু মুরগিটা দেখতে চাইছিলাম, সবাই ধইরা এভাবে ধোলাই দিল কেন?!" 😭🐔', width / 2, 421);
 
   // Bottom Footer with Share Call-To-Action & Website Link
   const currentUrl = typeof window !== 'undefined' ? window.location.href : 'http://localhost:5174/';
   ctx.fillStyle = '#facc15';
   ctx.font = 'bold 15px "Hind Siliguri", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('🐔 লিডার মুরগি চুর • পারলে আমার এই রেকর্ড ভেঙে দেখাও!', width / 2, 448);
+  ctx.fillText('🐔 লিডার মুরগি চুর • পারলে আমার এই রেকর্ড ভেঙে দেখাও!', width / 2, 464);
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '13px monospace';
-  ctx.fillText(`🎮 এখনই খেলুন: ${currentUrl.replace(/\/$/, '')}`, width / 2, 476);
+  ctx.fillText(`🎮 এখনই খেলুন: ${currentUrl.replace(/\/$/, '')}`, width / 2, 490);
 
   ctx.fillStyle = '#64748b';
   ctx.font = '11px sans-serif';
-  ctx.fillText('ইনস্ট্যান্ট আর্কেড গেম • dalalpidan.com স্টাইল ভাইরাল একশন', width / 2, 502);
+  ctx.fillText('ইনস্ট্যান্ট আর্কেড গেম • ভাইরাল বাংলাদেশি একশন রানার', width / 2, 514);
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {

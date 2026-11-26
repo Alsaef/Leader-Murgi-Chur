@@ -285,6 +285,97 @@ class SoundEngine {
     }
   }
 
+  // Double jump chicken wing flap boost ("ফড়ফড়!")
+  playDoubleJump() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    [0, 0.07].forEach((delay, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const startT = t + delay;
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(340 + idx * 120, startT);
+      osc.frequency.exponentialRampToValueAtTime(880 + idx * 150, startT + 0.14);
+
+      gain.gain.setValueAtTime(0.22, startT);
+      gain.gain.exponentialRampToValueAtTime(0.001, startT + 0.16);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(startT);
+      osc.stop(startT + 0.16);
+    });
+  }
+
+  // Bangladeshi CNG / Motorbike double-beep horn ("পিঁপ পিঁপ!")
+  playBikeHorn() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    [0, 0.16].forEach((delay) => {
+      const startT = t + delay;
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc1.type = 'sawtooth';
+      osc2.type = 'square';
+      osc1.frequency.setValueAtTime(440, startT);
+      osc2.frequency.setValueAtTime(554.37, startT); // Major third dual horn
+
+      gain.gain.setValueAtTime(0.18, startT);
+      gain.gain.exponentialRampToValueAtTime(0.001, startT + 0.11);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc1.start(startT);
+      osc2.start(startT);
+      osc1.stop(startT + 0.12);
+      osc2.stop(startT + 0.12);
+    });
+  }
+
+  // Mud puddle splash sound ("ছপাৎ!")
+  playMudSplash() {
+    if (this.isMuted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+    const bufferSize = this.ctx.sampleRate * 0.22;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.35));
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(900, t);
+    filter.frequency.exponentialRampToValueAtTime(220, t + 0.22);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    noise.start(t);
+  }
+
   // Mob dialogue audio removed as requested (comic speech bubbles retained visually on canvas)
   speakMobShout() {
     // No-op

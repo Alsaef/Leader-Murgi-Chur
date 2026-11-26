@@ -20,6 +20,8 @@ function App() {
     energy: 100,
     isBoosted: false,
     boostPercent: 0,
+    isBikeRush: false,
+    bikePercent: 0,
   });
 
   const [highScore, setHighScore] = useState(() => {
@@ -50,6 +52,8 @@ function App() {
       energy: 100,
       isBoosted: false,
       boostPercent: 0,
+      isBikeRush: false,
+      bikePercent: 0,
     });
     setGameState('PLAYING');
   };

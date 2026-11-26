@@ -7,6 +7,7 @@ import {
   PHYSICS,
   CHAT_PHRASES,
   POSTERS,
+  getLeaderRank,
 } from '../utils/constants';
 
 const GameCanvas = ({
@@ -57,6 +58,8 @@ const GameCanvas = ({
       vy: 0,
       isGrounded: true,
       isJumping: false,
+      jumpsUsed: 0,
+      doubleJumpTimer: 0,
       isKicking: false,
       kickTimer: 0,
       kickCooldown: 0,
@@ -64,6 +67,7 @@ const GameCanvas = ({
       stunTimer: 0,
       energy: 100,
       boostTimer: 0,
+      bikeTimer: 0,
       runCycle: 0,
       chickenFlap: 0,
       featherTimer: 0,
@@ -87,15 +91,22 @@ const GameCanvas = ({
     let obstacles = [];
     let blockers = [];
     let pickups = [];
+    let sandals = [];
     let particles = [];
     let floaters = [];
     let feathers = [];
     let brawlParticles = [];
 
-    // Spawners timers (Increased booster frequency by 50% for fast-paced thrilling gameplay)
-    let obstacleTimer = 160;
-    let blockerTimer = 220;
-    let pickupTimer = 220; // First drink appears ~3.6s into run
+    // Spawners timers (tighter pacing for thrilling challenge)
+    let obstacleTimer = 110;
+    let blockerTimer = 155;
+    let pickupTimer = 240; // First drink appears ~4s into run
+    let bikeSpawnTimer = 620; // First CNG/Bike Rush appears ~10s into run
+    let sandalTimer = 210; // First flying sandal appears ~3.5s into run
+
+    // Milestone trackers for rank-up & dynamic day-sunset-night announcements
+    let lastRankTitle = getLeaderRank(0).title;
+    let lastDayPhase = 'DAY';
 
     // Background parallax offsets
     let skyOffset = 0;
@@ -108,9 +119,6 @@ const GameCanvas = ({
       { x: 500, type: 'tong', poster: POSTERS[0] },
       { x: 1100, type: 'tong', poster: POSTERS[1] },
     ];
-
-    // Screen Shake Effect
-    let screenShake = 0;
 
     // Gono Pituni Brawl Cloud state
     let brawlActive = false;
@@ -128,6 +136,7 @@ const GameCanvas = ({
         player.vy = PHYSICS.JUMP_FORCE;
         player.isGrounded = false;
         player.isJumping = true;
+        player.jumpsUsed = 1;
         sound.playJump();
         sound.playCluck();
 
@@ -144,6 +153,44 @@ const GameCanvas = ({
             life: 25,
           });
         }
+      } else if (
+        !player.isGrounded &&
+        player.jumpsUsed < 2 &&
+        !player.isStunned &&
+        !brawlActive
+      ) {
+        // Double Jump via frantic Chicken Wing Flap!
+        player.vy = PHYSICS.DOUBLE_JUMP_FORCE;
+        player.jumpsUsed = 2;
+        player.doubleJumpTimer = 24;
+        sound.playDoubleJump();
+        sound.playCluck();
+
+        floaters.push({
+          x: player.x,
+          y: player.y - 95,
+          text: 'ফড়ফড়! ডাবল লাফ! 🐔',
+          color: '#fef08a',
+          scale: 1.05,
+          vy: -1.6,
+          alpha: 1,
+          life: 28,
+        });
+
+        // Burst of flapping chicken feathers downward
+        for (let i = 0; i < 9; i++) {
+          feathers.push({
+            x: player.x - 6 + (Math.random() - 0.5) * 20,
+            y: player.y - 45,
+            vx: (Math.random() - 0.5) * 5,
+            vy: 1 + Math.random() * 3,
+            rot: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.25,
+            color: i % 3 === 0 ? '#fbbf24' : '#ffffff',
+            alpha: 1,
+            life: 45,
+          });
+        }
       }
     };
 
@@ -154,7 +201,6 @@ const GameCanvas = ({
       blocker.rotSpeed = 0.25;
       kicksCount++;
       score += PHYSICS.KICK_BONUS_SCORE;
-      screenShake = 10;
 
       sound.playVillagerFly();
       sound.playCluck();
@@ -229,6 +275,33 @@ const GameCanvas = ({
             kickBlocker(b);
           }
         });
+
+        // Also check immediate kick deflection against flying sandals
+        sandals.forEach((s) => {
+          if (
+            !s.deflected &&
+            !s.hit &&
+            s.x >= player.x - 15 &&
+            s.x <= player.x + 105 &&
+            Math.abs(s.y - (player.y - 48)) < 50
+          ) {
+            s.deflected = true;
+            s.vx = 13;
+            s.vy = -10;
+            score += PHYSICS.SANDAL_DEFLECT_SCORE;
+            sound.playKick();
+            floaters.push({
+              x: s.x,
+              y: s.y - 25,
+              text: 'ঠাস! স্যান্ডেল ব্লক! +30',
+              color: '#38bdf8',
+              scale: 1.25,
+              vy: -2,
+              alpha: 1,
+              life: 32,
+            });
+          }
+        });
       }
     };
 
@@ -286,21 +359,14 @@ const GameCanvas = ({
     const updateAndRender = () => {
       // Canvas clearing
       ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-      // Handle Screen Shake
       ctx.save();
-      if (screenShake > 0) {
-        const shakeX = (Math.random() - 0.5) * screenShake;
-        const shakeY = (Math.random() - 0.5) * screenShake;
-        ctx.translate(shakeX, shakeY);
-        screenShake *= 0.88;
-        if (screenShake < 0.5) screenShake = 0;
-      }
 
       // CURRENT SPEED COMPUTATION
       let currentSpeed = PHYSICS.BASE_SPEED;
       if (gameState === 'PLAYING') {
-        if (player.boostTimer > 0) {
+        if (player.bikeTimer > 0) {
+          currentSpeed = PHYSICS.BIKE_SPEED;
+        } else if (player.boostTimer > 0) {
           currentSpeed = PHYSICS.BOOST_SPEED;
         } else if (player.energy < PHYSICS.ENERGY_LOW_THRESHOLD) {
           const lowRatio = Math.max(0.25, player.energy / PHYSICS.ENERGY_LOW_THRESHOLD);
@@ -313,13 +379,88 @@ const GameCanvas = ({
         currentSpeed = PHYSICS.BASE_SPEED * 0.7; // Gentle background scroll
       }
 
+      // Compute Dynamic Day -> Sunset -> Night (Load-Shedding) Environment
+      const timeEnv = getTimeOfDayState(distance);
+
       // UPDATE PLAYER PHYSICS (Active only when playing)
       if (gameState === 'PLAYING' && !brawlActive) {
         distance += currentSpeed * 0.05;
-        score = Math.floor(distance * 2 + kicksCount * PHYSICS.KICK_BONUS_SCORE);
+        score = Math.floor(
+          distance * 2 + kicksCount * PHYSICS.KICK_BONUS_SCORE
+        );
 
-        // Energy drain (Gradual natural depletion)
-        if (player.boostTimer > 0) {
+        // Rank-up celebratory announcement!
+        const newRank = getLeaderRank(score);
+        if (newRank.title !== lastRankTitle && score >= 500) {
+          lastRankTitle = newRank.title;
+          floaters.push({
+            x: GAME_WIDTH / 2,
+            y: 130,
+            text: `${newRank.badge} পদোন্নতি: ${newRank.title}!`,
+            color: newRank.color,
+            scale: 1.35,
+            vy: -0.9,
+            alpha: 1,
+            life: 70,
+          });
+        }
+
+        // Day / Sunset / Night Load-Shedding transition alert
+        if (timeEnv.phase !== lastDayPhase) {
+          lastDayPhase = timeEnv.phase;
+          if (timeEnv.phase === 'SUNSET') {
+            floaters.push({
+              x: GAME_WIDTH / 2,
+              y: 115,
+              text: '🌆 গোধূলি সন্ধ্যা নামছে!',
+              color: '#fb923c',
+              scale: 1.25,
+              vy: -0.7,
+              alpha: 1,
+              life: 65,
+            });
+          } else if (timeEnv.phase === 'NIGHT') {
+            floaters.push({
+              x: GAME_WIDTH / 2,
+              y: 115,
+              text: '🔦 কারেন্ট নাই! লোডশেডিং + মশাল তাড়া!',
+              color: '#fef08a',
+              scale: 1.25,
+              vy: -0.7,
+              alpha: 1,
+              life: 75,
+            });
+          } else if (timeEnv.phase === 'DAY' && distance > 100) {
+            floaters.push({
+              x: GAME_WIDTH / 2,
+              y: 115,
+              text: '☀️ ভোর হয়ে গেছে! দৌড় থামিয়ো না!',
+              color: '#38bdf8',
+              scale: 1.2,
+              vy: -0.7,
+              alpha: 1,
+              life: 60,
+            });
+          }
+        }
+
+        // Energy & Power-up timers
+        if (player.bikeTimer > 0) {
+          player.bikeTimer--;
+          // CNG/Bike exhaust smoke puffs
+          if (Math.random() < 0.65) {
+            particles.push({
+              x: player.x - 42,
+              y: player.y - 12,
+              vx: -4 - Math.random() * 2,
+              vy: -0.6 - Math.random() * 1.2,
+              radius: 4 + Math.random() * 4,
+              alpha: 0.7,
+              color: '#cbd5e1',
+              life: 25,
+            });
+          }
+        } else if (player.boostTimer > 0) {
           player.boostTimer--;
         } else {
           player.energy = Math.max(
@@ -328,11 +469,20 @@ const GameCanvas = ({
           );
         }
 
+        if (player.doubleJumpTimer > 0) {
+          player.doubleJumpTimer--;
+        }
+
         // Footsteps & chicken flap audio
         player.runCycle += currentSpeed * 0.055;
-        player.chickenFlap += (player.boostTimer > 0 ? 0.45 : 0.28);
+        player.chickenFlap +=
+          player.doubleJumpTimer > 0
+            ? 0.9
+            : player.bikeTimer > 0 || player.boostTimer > 0
+            ? 0.45
+            : 0.28;
         player.footstepTimer++;
-        if (player.isGrounded && player.footstepTimer > 16) {
+        if (player.isGrounded && player.bikeTimer <= 0 && player.footstepTimer > 16) {
           sound.playFootstep();
           player.footstepTimer = 0;
         }
@@ -351,6 +501,7 @@ const GameCanvas = ({
             player.vy = 0;
             player.isGrounded = true;
             player.isJumping = false;
+            player.jumpsUsed = 0;
           }
         }
 
@@ -375,7 +526,7 @@ const GameCanvas = ({
 
         // Feather emitter from held chicken
         player.featherTimer++;
-        if (player.featherTimer > (player.boostTimer > 0 ? 10 : 25)) {
+        if (player.featherTimer > (player.boostTimer > 0 || player.bikeTimer > 0 ? 10 : 25)) {
           feathers.push({
             x: player.x - 10,
             y: player.y - 35,
@@ -427,7 +578,7 @@ const GameCanvas = ({
       if (gameState === 'PLAYING' && !brawlActive) {
         mob.runCycle += 0.35;
 
-        // Base target X is influenced by Player Energy & Stun
+        // Base target X is influenced by Player Energy, Bike Rush, Boost & Stun
         let targetX = -40;
         if (player.energy < PHYSICS.ENERGY_LOW_THRESHOLD) {
           const dangerLevel = (PHYSICS.ENERGY_LOW_THRESHOLD - player.energy) / PHYSICS.ENERGY_LOW_THRESHOLD;
@@ -436,7 +587,9 @@ const GameCanvas = ({
         if (player.isStunned) {
           targetX += 60;
         }
-        if (player.boostTimer > 0) {
+        if (player.bikeTimer > 0) {
+          targetX = -110; // CNG leaves mob far behind in the dust!
+        } else if (player.boostTimer > 0) {
           targetX = -70; // Driven far back
         }
 
@@ -510,8 +663,8 @@ const GameCanvas = ({
         });
       }
 
-      // RENDER PARALLAX BACKGROUND
-      renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, passingShops);
+      // RENDER PARALLAX BACKGROUND (Dynamic Day -> Sunset -> Night Load-Shedding)
+      renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, passingShops, timeEnv);
 
       // SPAWN & UPDATE OBSTACLES (Active only when playing)
       if (gameState === 'PLAYING' && !brawlActive) {
@@ -522,17 +675,35 @@ const GameCanvas = ({
           if (blockerNear) {
             obstacleTimer = 40; // Postpone spawn
           } else {
-            const types = ['rickshaw_van', 'speed_breaker', 'dog', 'bench'];
+            const types = ['rickshaw_van', 'speed_breaker', 'dog', 'bench', 'mud_puddle'];
             const chosen = types[Math.floor(Math.random() * types.length)];
             obstacles.push({
               x: GAME_WIDTH + 50,
               y: GROUND_Y,
               type: chosen,
-              width: chosen === 'rickshaw_van' ? 70 : chosen === 'bench' ? 55 : chosen === 'dog' ? 40 : 35,
-              height: chosen === 'rickshaw_van' ? 50 : chosen === 'bench' ? 28 : chosen === 'dog' ? 24 : 16,
+              width:
+                chosen === 'mud_puddle'
+                  ? 76
+                  : chosen === 'rickshaw_van'
+                  ? 70
+                  : chosen === 'bench'
+                  ? 55
+                  : chosen === 'dog'
+                  ? 40
+                  : 35,
+              height:
+                chosen === 'rickshaw_van'
+                  ? 50
+                  : chosen === 'bench'
+                  ? 28
+                  : chosen === 'dog'
+                  ? 24
+                  : chosen === 'mud_puddle'
+                  ? 12
+                  : 16,
               hit: false,
             });
-            obstacleTimer = 180 + Math.random() * 140;
+            obstacleTimer = Math.max(75, 115 - distance * 0.015) + Math.random() * 90;
           }
         }
 
@@ -544,31 +715,76 @@ const GameCanvas = ({
           if (
             !obs.hit &&
             Math.abs(obs.x - player.x) < obs.width / 2 + 18 &&
-            player.y > GROUND_Y - obs.height + 5
+            player.y > GROUND_Y - obs.height + 4
           ) {
             obs.hit = true;
-            if (player.boostTimer > 0) {
+            if (player.bikeTimer > 0 || player.boostTimer > 0) {
               // Invulnerable plow through
-              sound.playKick();
-              screenShake = 6;
+              if (obs.type === 'mud_puddle') {
+                sound.playMudSplash();
+                for (let i = 0; i < 10; i++) {
+                  particles.push({
+                    x: obs.x,
+                    y: GROUND_Y - 4,
+                    vx: -3 - Math.random() * 4,
+                    vy: -Math.random() * 5,
+                    radius: 3 + Math.random() * 3,
+                    alpha: 0.9,
+                    color: '#78350f',
+                    life: 25,
+                  });
+                }
+              } else {
+                sound.playKick();
+                floaters.push({
+                  x: obs.x,
+                  y: obs.y - 30,
+                  text: player.bikeTimer > 0 ? 'পিঁপ পিঁপ! ধুম!' : 'ধুম!',
+                  color: '#eab308',
+                  scale: 1.3,
+                  vy: -2,
+                  alpha: 1,
+                  life: 25,
+                });
+              }
+            } else if (obs.type === 'mud_puddle') {
+              // Mud Puddle slip!
+              player.isStunned = true;
+              player.stunTimer = Math.floor(PHYSICS.STUN_DURATION * 0.9);
+              player.energy = Math.max(0, player.energy - 13);
+              mob.currentX += 48;
+              sound.playMudSplash();
+
+              for (let i = 0; i < 14; i++) {
+                particles.push({
+                  x: player.x,
+                  y: GROUND_Y - 4,
+                  vx: (Math.random() - 0.5) * 7,
+                  vy: -2 - Math.random() * 5,
+                  radius: 3 + Math.random() * 4,
+                  alpha: 1,
+                  color: i % 2 === 0 ? '#713f12' : '#451a03',
+                  life: 30,
+                });
+              }
+
               floaters.push({
-                x: obs.x,
-                y: obs.y - 30,
-                text: 'ধুম!',
-                color: '#eab308',
-                scale: 1.3,
-                vy: -2,
+                x: player.x,
+                y: player.y - 52,
+                text: 'পিছলা কাদা! ছপাৎ!',
+                color: '#d97706',
+                scale: 1.25,
+                vy: -1.6,
                 alpha: 1,
-                life: 25,
+                life: 32,
               });
             } else {
               // Stumble & drop energy
               player.isStunned = true;
               player.stunTimer = PHYSICS.STUN_DURATION;
-              player.energy = Math.max(0, player.energy - 12);
-              mob.currentX += 45; // Mob closes in
+              player.energy = Math.max(0, player.energy - 15);
+              mob.currentX += 52; // Mob closes in
               sound.playStumble();
-              screenShake = 5;
 
               if (obs.type === 'dog') {
                 floaters.push({
@@ -598,18 +814,100 @@ const GameCanvas = ({
         });
         obstacles = obstacles.filter((obs) => obs.x > -150);
 
+        // SPAWN & UPDATE FLYING SANDALS (উড়ন্ত স্যান্ডেল - jump over OR kick back!)
+        sandalTimer--;
+        if (sandalTimer <= 0) {
+          sandals.push({
+            x: GAME_WIDTH + 60,
+            y: GROUND_Y - 50,
+            vx: -(currentSpeed * 1.45),
+            vy: 0,
+            rot: 0,
+            hit: false,
+            deflected: false,
+          });
+          sandalTimer = Math.max(115, 165 - distance * 0.015) + Math.random() * 125;
+        }
+
+        sandals.forEach((s) => {
+          if (s.deflected) {
+            s.x += s.vx;
+            s.y += s.vy;
+            s.vy += 0.45;
+            s.rot += 0.45;
+          } else {
+            s.x += s.vx;
+            s.rot -= 0.3;
+
+            // Active Kick Deflection
+            if (
+              player.isKicking &&
+              s.x >= player.x - 15 &&
+              s.x <= player.x + 105 &&
+              Math.abs(s.y - (player.y - 48)) < 50
+            ) {
+              s.deflected = true;
+              s.vx = 13;
+              s.vy = -10;
+              score += PHYSICS.SANDAL_DEFLECT_SCORE;
+              sound.playKick();
+              floaters.push({
+                x: s.x,
+                y: s.y - 25,
+                text: 'ঠাস! স্যান্ডেল ব্লক! +30',
+                color: '#38bdf8',
+                scale: 1.25,
+                vy: -2,
+                alpha: 1,
+                life: 32,
+              });
+            } else if (
+              !s.hit &&
+              Math.abs(s.x - player.x) < 26 &&
+              Math.abs(s.y - (player.y - 52)) < 36
+            ) {
+              if (player.bikeTimer > 0 || player.boostTimer > 0) {
+                s.deflected = true;
+                s.vx = 11;
+                s.vy = -9;
+                sound.playKick();
+              } else {
+                s.hit = true;
+                player.isStunned = true;
+                player.stunTimer = Math.floor(PHYSICS.STUN_DURATION * 0.9);
+                player.energy = Math.max(0, player.energy - 14);
+                mob.currentX += 45;
+                sound.playStumble();
+                floaters.push({
+                  x: player.x,
+                  y: player.y - 75,
+                  text: 'আউচ! উড়ন্ত স্যান্ডেল!',
+                  color: '#f43f5e',
+                  scale: 1.25,
+                  vy: -1.8,
+                  alpha: 1,
+                  life: 30,
+                });
+              }
+            }
+          }
+        });
+        sandals = sandals.filter(
+          (s) => s.x > -100 && s.x < GAME_WIDTH + 180 && s.y < GAME_HEIGHT + 80
+        );
+
         // SPAWN & UPDATE FRONT BLOCKERS (Villagers to kick!)
         blockerTimer--;
         if (blockerTimer <= 0) {
           // Check no obstacle is too close to avoid unfair overlap
-          const obstacleNear = obstacles.some((o) => o.x > GAME_WIDTH - 180);
+          const obstacleNear = obstacles.some((o) => o.x > GAME_WIDTH - 150);
           if (obstacleNear) {
-            blockerTimer = 40; // Postpone spawn
+            blockerTimer = 30; // Postpone spawn
           } else {
             blockers.push({
               x: GAME_WIDTH + 60,
               y: GROUND_Y,
-              vx: -currentSpeed * 0.45,
+              vx: -currentSpeed * 0.58,
               vy: 0,
               rot: 0,
               rotSpeed: 0,
@@ -623,7 +921,7 @@ const GameCanvas = ({
                 Math.floor(Math.random() * 4)
               ],
             });
-            blockerTimer = 220 + Math.random() * 150;
+            blockerTimer = Math.max(100, 145 - distance * 0.015) + Math.random() * 110;
           }
         }
 
@@ -647,11 +945,11 @@ const GameCanvas = ({
             ) {
               kickBlocker(b);
             } else if (
-              player.boostTimer > 0 &&
-              Math.abs(b.x - player.x) < 45 &&
+              (player.bikeTimer > 0 || player.boostTimer > 0) &&
+              Math.abs(b.x - player.x) < 55 &&
               player.y > GROUND_Y - 95
             ) {
-              // Super boost bulldozes through
+              // Super boost / CNG Rush bulldozes through
               kickBlocker(b);
             } else if (
               !player.isStunned &&
@@ -664,10 +962,9 @@ const GameCanvas = ({
               b.vy = -6;
               player.isStunned = true;
               player.stunTimer = PHYSICS.STUN_DURATION;
-              player.energy = Math.max(0, player.energy - 15);
-              mob.currentX += 55; // Mob surges forward!
+              player.energy = Math.max(0, player.energy - 18);
+              mob.currentX += 62; // Mob surges forward!
               sound.playStumble();
-              screenShake = 7;
 
               floaters.push({
                 x: player.x,
@@ -684,19 +981,33 @@ const GameCanvas = ({
         });
         blockers = blockers.filter((b) => b.x > -200 && b.y < GAME_HEIGHT + 100);
 
-        // SPAWN & UPDATE ROADSIDE ENERGY DRINKS (Balanced spawn: every 11-16 seconds)
+        // SPAWN & UPDATE ROADSIDE ENERGY DRINKS (Balanced spawn)
         pickupTimer--;
         if (pickupTimer <= 0) {
           const isHigh = Math.random() > 0.5;
           pickups.push({
+            type: 'energy',
             x: GAME_WIDTH + 40,
             y: isHigh ? GROUND_Y - 75 : GROUND_Y - 25,
             width: 24,
             height: 38,
             floatPhase: Math.random() * Math.PI,
           });
-          // Set 50% more frequent booster spawns (~5.6 to 8.3 seconds)
-          pickupTimer = 340 + Math.random() * 160;
+          pickupTimer = 360 + Math.random() * 160;
+        }
+
+        // SPAWN CNG / BIKE RUSH POWER-UP
+        bikeSpawnTimer--;
+        if (bikeSpawnTimer <= 0) {
+          pickups.push({
+            type: 'bike_rush',
+            x: GAME_WIDTH + 60,
+            y: GROUND_Y - 36,
+            width: 48,
+            height: 36,
+            floatPhase: Math.random() * Math.PI,
+          });
+          bikeSpawnTimer = 650 + Math.random() * 300;
         }
 
         // Move Pickups
@@ -706,69 +1017,107 @@ const GameCanvas = ({
 
           // Collect condition
           if (
-            Math.abs(p.x - player.x) < 35 &&
-            Math.abs(p.y - (player.y - 30)) < 40
+            Math.abs(p.x - player.x) < 40 &&
+            Math.abs(p.y - (player.y - 32)) < 44
           ) {
-            // Drink collected!
             p.collected = true;
-            drinksCount++;
-            player.energy = Math.min(100, player.energy + PHYSICS.BOOST_ENERGY_REFILL);
-            player.boostTimer = PHYSICS.BOOST_DURATION;
-            score += 25;
-            sound.playGulp();
+            if (p.type === 'bike_rush') {
+              // CNG / Bike Rush activated!
+              player.bikeTimer = PHYSICS.BIKE_DURATION;
+              player.energy = Math.min(100, player.energy + 30);
+              score += 75;
+              sound.playBikeHorn();
 
-            // Energy Drink celebration text
-            const fxText =
-              CHAT_PHRASES.POWER_FX[
-                Math.floor(Math.random() * CHAT_PHRASES.POWER_FX.length)
-              ];
-            floaters.push({
-              x: player.x,
-              y: player.y - 70,
-              text: fxText,
-              color: '#38bdf8',
-              scale: 1.4,
-              vy: -2,
-              alpha: 1,
-              life: 35,
-            });
-
-            // Energy aura burst
-            for (let i = 0; i < 14; i++) {
-              particles.push({
+              const bikeText =
+                CHAT_PHRASES.BIKE_FX[
+                  Math.floor(Math.random() * CHAT_PHRASES.BIKE_FX.length)
+                ];
+              floaters.push({
                 x: player.x,
-                y: player.y - 30,
-                vx: (Math.random() - 0.5) * 7,
-                vy: (Math.random() - 0.5) * 7,
-                radius: 3 + Math.random() * 3,
+                y: player.y - 80,
+                text: bikeText,
+                color: '#4ade80',
+                scale: 1.45,
+                vy: -2,
                 alpha: 1,
-                color: i % 2 === 0 ? '#38bdf8' : '#fbbf24',
-                life: 30,
-                star: true,
+                life: 45,
               });
+
+              for (let i = 0; i < 18; i++) {
+                particles.push({
+                  x: player.x,
+                  y: player.y - 30,
+                  vx: (Math.random() - 0.5) * 9,
+                  vy: (Math.random() - 0.5) * 9,
+                  radius: 3 + Math.random() * 4,
+                  alpha: 1,
+                  color: i % 2 === 0 ? '#22c55e' : '#facc15',
+                  life: 32,
+                  star: true,
+                });
+              }
+            } else {
+              // Energy Drink collected!
+              drinksCount++;
+              player.energy = Math.min(100, player.energy + PHYSICS.BOOST_ENERGY_REFILL);
+              player.boostTimer = PHYSICS.BOOST_DURATION;
+              score += 25;
+              sound.playGulp();
+
+              const fxText =
+                CHAT_PHRASES.POWER_FX[
+                  Math.floor(Math.random() * CHAT_PHRASES.POWER_FX.length)
+                ];
+              floaters.push({
+                x: player.x,
+                y: player.y - 70,
+                text: fxText,
+                color: '#38bdf8',
+                scale: 1.4,
+                vy: -2,
+                alpha: 1,
+                life: 35,
+              });
+
+              for (let i = 0; i < 14; i++) {
+                particles.push({
+                  x: player.x,
+                  y: player.y - 30,
+                  vx: (Math.random() - 0.5) * 7,
+                  vy: (Math.random() - 0.5) * 7,
+                  radius: 3 + Math.random() * 3,
+                  alpha: 1,
+                  color: i % 2 === 0 ? '#38bdf8' : '#fbbf24',
+                  life: 30,
+                  star: true,
+                });
+              }
             }
           }
         });
-        pickups = pickups.filter((p) => !p.collected && p.x > -50);
+        pickups = pickups.filter((p) => !p.collected && p.x > -60);
       }
 
       // RENDER OBSTACLES
       renderObstacles(ctx, obstacles);
 
-      // RENDER ENERGY DRINK PICKUPS
+      // RENDER FLYING SANDALS
+      renderSandals(ctx, sandals);
+
+      // RENDER ENERGY DRINKS & BIKE RUSH PICKUPS
       renderPickups(ctx, pickups);
 
       // RENDER FRONT BLOCKERS
       renderBlockers(ctx, blockers);
 
-      // RENDER CHASING MOB (Left side)
+      // RENDER CHASING MOB (Left side, with flaming torches at night!)
       if (gameState === 'PLAYING') {
-        renderMob(ctx, mob);
+        renderMob(ctx, mob, timeEnv.nightFactor);
       }
 
-      // RENDER PROCEDURAL ANIMATED LEADER WITH HELD CHICKEN
+      // RENDER PROCEDURAL ANIMATED LEADER WITH HELD CHICKEN (and CNG Bike if active)
       if (!brawlActive) {
-        renderLeader(ctx, player, leaderImg, leaderImgLoaded);
+        renderLeader(ctx, player, leaderImg, leaderImgLoaded, timeEnv.nightFactor);
       } else {
         // RENDER GONO PITUNI BRAWL CLOUD
         renderBrawlCloud(ctx, brawlX, brawlY, brawlTimer, brawlParticles);
@@ -788,12 +1137,15 @@ const GameCanvas = ({
         }
       }
 
-      // RENDER FLOATING FEATHERS
+      // RENDER FLOATING FEATHERS & CLEAN UP FADED ENTITIES
       renderFeathers(ctx, feathers);
+      feathers = feathers.filter((f) => f.alpha > 0.02);
 
       // RENDER PARTICLES & FLOATERS
       renderParticles(ctx, particles);
+      particles = particles.filter((p) => p.alpha > 0.02);
       renderFloaters(ctx, floaters);
+      floaters = floaters.filter((f) => f.alpha > 0.02);
 
       ctx.restore();
 
@@ -808,6 +1160,8 @@ const GameCanvas = ({
             energy: Math.floor(player.energy),
             isBoosted: player.boostTimer > 0,
             boostPercent: Math.floor((player.boostTimer / PHYSICS.BOOST_DURATION) * 100),
+            isBikeRush: player.bikeTimer > 0,
+            bikePercent: Math.floor((player.bikeTimer / PHYSICS.BIKE_DURATION) * 100),
           });
         }
       }
@@ -835,14 +1189,7 @@ const GameCanvas = ({
       ref={canvasRef}
       width={GAME_WIDTH}
       height={GAME_HEIGHT}
-      style={{
-        display: 'block',
-        width: '100%',
-        height: '100%',
-        objectFit: 'contain',
-        backgroundColor: '#fef08a',
-        cursor: 'pointer',
-      }}
+      className="game-canvas-el"
     />
   );
 };
@@ -851,31 +1198,132 @@ const GameCanvas = ({
 // RENDERING HELPER FUNCTIONS
 // ==========================================
 
+// Color interpolation helper for smooth Day -> Sunset -> Night transitions
+function lerpColor(hex1, hex2, t) {
+  const clampT = Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0));
+  const r1 = parseInt(hex1.slice(1, 3), 16) || 0;
+  const g1 = parseInt(hex1.slice(3, 5), 16) || 0;
+  const b1 = parseInt(hex1.slice(5, 7), 16) || 0;
+  const r2 = parseInt(hex2.slice(1, 3), 16) || 0;
+  const g2 = parseInt(hex2.slice(3, 5), 16) || 0;
+  const b2 = parseInt(hex2.slice(5, 7), 16) || 0;
+  const r = Math.round(r1 + (r2 - r1) * clampT);
+  const g = Math.round(g1 + (g2 - g1) * clampT);
+  const b = Math.round(b1 + (b2 - b1) * clampT);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+// Compute smooth Day -> Sunset -> Night (Load-Shedding) state from distance (900m cycle)
+function getTimeOfDayState(distance) {
+  const safeDist = Number.isFinite(distance) && distance >= 0 ? distance : 0;
+  const cycle = safeDist % 900;
+  let sunsetFactor = 0;
+  let nightFactor = 0;
+  let phase;
+  let mixColors;
+
+  if (cycle < 220) {
+    phase = 'DAY';
+    mixColors = (dayHex) => dayHex;
+  } else if (cycle < 310) {
+    const t = (cycle - 220) / 90;
+    sunsetFactor = t;
+    phase = 'SUNSET';
+    mixColors = (dayHex, sunsetHex) => lerpColor(dayHex, sunsetHex, t);
+  } else if (cycle < 470) {
+    sunsetFactor = 1;
+    phase = 'SUNSET';
+    mixColors = (_, sunsetHex) => sunsetHex;
+  } else if (cycle < 560) {
+    const t = (cycle - 470) / 90;
+    sunsetFactor = 1 - t;
+    nightFactor = t;
+    phase = 'NIGHT';
+    mixColors = (_, sunsetHex, nightHex) => lerpColor(sunsetHex, nightHex, t);
+  } else if (cycle < 810) {
+    nightFactor = 1;
+    phase = 'NIGHT';
+    mixColors = (_, _s, nightHex) => nightHex;
+  } else {
+    const t = (cycle - 810) / 90;
+    nightFactor = 1 - t;
+    phase = 'DAY';
+    mixColors = (dayHex, _s, nightHex) => lerpColor(nightHex, dayHex, t);
+  }
+
+  return {
+    phase,
+    sunsetFactor,
+    nightFactor,
+    skyTop: mixColors('#0284c7', '#ea580c', '#020617'),
+    skyMid: mixColors('#7dd3fc', '#fb923c', '#0f172a'),
+    skyLow: mixColors('#fef9c3', '#fde047', '#1e1b4b'),
+    skyGround: mixColors('#dcfce7', '#fef08a', '#0f172a'),
+    hillColor: mixColors('#65a30d', '#4d7c0f', '#14532d'),
+    treeColor: mixColors('#4d7c0f', '#3f6212', '#064e3b'),
+    roadTop: mixColors('#a16207', '#92400e', '#334155'),
+    roadMid: mixColors('#78350f', '#78350f', '#1e293b'),
+    roadBot: mixColors('#451a03', '#451a03', '#0f172a'),
+    sunY: 85 + sunsetFactor * 125 + nightFactor * 260,
+  };
+}
+
 // 1. MULTI-LAYER PARALLAX BACKGROUND (Positive modulo guarantees no glitching tiles)
-function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops) {
-  // Layer 0: Sky Gradient (Warm sunset golden hour Bangladeshi afternoon)
+function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops, timeEnv) {
+  const { nightFactor, sunsetFactor } = timeEnv;
+
+  // Layer 0: Dynamic Sky Gradient (Day -> Sunset -> Load-Shedding Night)
   const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  skyGrad.addColorStop(0, '#f97316'); // Rich sunset orange
-  skyGrad.addColorStop(0.45, '#fed7aa'); // Soft golden peach
-  skyGrad.addColorStop(0.85, '#fef08a'); // Warm yellow light
-  skyGrad.addColorStop(1, '#ecfccb'); // Lime glow above fields
+  skyGrad.addColorStop(0, timeEnv.skyTop);
+  skyGrad.addColorStop(0.45, timeEnv.skyMid);
+  skyGrad.addColorStop(0.85, timeEnv.skyLow);
+  skyGrad.addColorStop(1, timeEnv.skyGround);
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
 
-  // Radiant Golden Sun
-  ctx.save();
-  ctx.fillStyle = 'rgba(255, 247, 237, 0.9)';
-  ctx.beginPath();
-  ctx.arc(750, 110, 52, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(254, 215, 170, 0.35)';
-  ctx.beginPath();
-  ctx.arc(750, 110, 80, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  // Twinkling Stars & Crescent Moon during Night Load-Shedding
+  if (nightFactor > 0.15) {
+    ctx.save();
+    for (let i = 0; i < 28; i++) {
+      const sx = ((i * 173 - skyOffset * 0.2) % GAME_WIDTH + GAME_WIDTH) % GAME_WIDTH;
+      const sy = 24 + ((i * 67) % 190);
+      const twinkle = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() * 0.003 + i));
+      ctx.fillStyle = `rgba(255, 255, 255, ${nightFactor * twinkle})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, i % 4 === 0 ? 2 : 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Glowing Crescent Moon
+    ctx.globalAlpha = Math.min(1, nightFactor * 1.2);
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(760, 82, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = timeEnv.skyTop;
+    ctx.beginPath();
+    ctx.arc(772, 74, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Radiant Sun (visible during Day & Sunset, dips below horizon at night)
+  if (nightFactor < 0.85) {
+    ctx.save();
+    ctx.globalAlpha = 1 - nightFactor;
+    ctx.fillStyle = sunsetFactor > 0.4 ? 'rgba(255, 237, 213, 0.92)' : 'rgba(254, 249, 195, 0.95)';
+    ctx.beginPath();
+    ctx.arc(750, timeEnv.sunY, 48, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = sunsetFactor > 0.4 ? 'rgba(251, 146, 60, 0.35)' : 'rgba(253, 224, 71, 0.3)';
+    ctx.beginPath();
+    ctx.arc(750, timeEnv.sunY, 76, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // Distant clouds
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillStyle = `rgba(255, 255, 255, ${0.55 - nightFactor * 0.4})`;
   for (let i = 0; i < 4; i++) {
     const rawX = i * 320 - skyOffset * 0.4;
     const cx = (((rawX % (GAME_WIDTH + 200)) + (GAME_WIDTH + 200)) % (GAME_WIDTH + 200)) - 100;
@@ -887,9 +1335,9 @@ function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops)
     ctx.fill();
   }
 
-  // Layer 1: Far Background (Paddy fields, coconut trees, tin village houses)
+  // Layer 1: Far Background (Paddy fields, coconut trees)
   ctx.save();
-  ctx.fillStyle = '#65a30d'; // Olive paddy green
+  ctx.fillStyle = timeEnv.hillColor;
   ctx.beginPath();
   ctx.moveTo(0, GROUND_Y - 50);
   for (let x = 0; x <= GAME_WIDTH; x += 40) {
@@ -901,19 +1349,17 @@ function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops)
   ctx.fill();
 
   // Coconut & Betel nut trees (নারকেল ও সুপারি গাছ)
-  ctx.fillStyle = '#4d7c0f';
-  ctx.strokeStyle = '#78350f';
+  ctx.fillStyle = timeEnv.treeColor;
+  ctx.strokeStyle = nightFactor > 0.5 ? '#1e293b' : '#78350f';
   ctx.lineWidth = 4;
   for (let i = 0; i < 6; i++) {
     const rawTX = i * 200 - farOffset;
     const tx = (((rawTX % (GAME_WIDTH + 150)) + (GAME_WIDTH + 150)) % (GAME_WIDTH + 150)) - 50;
     const ty = GROUND_Y - 35;
-    // Trunk
     ctx.beginPath();
     ctx.moveTo(tx, ty);
     ctx.quadraticCurveTo(tx + 8, ty - 60, tx + 4, ty - 110);
     ctx.stroke();
-    // Palm leaves
     for (let a = 0; a < 6; a++) {
       const angle = (a * Math.PI) / 3;
       ctx.beginPath();
@@ -927,21 +1373,21 @@ function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops)
   }
   ctx.restore();
 
-  // Layer 2: Midground Roadside Tong Dokan (চায়ের দোকান) & Posters
+  // Layer 2: Midground Roadside Tong Dokan (চায়ের দোকান) & Posters (with night kerosene lamp!)
   shops.forEach((shop) => {
-    renderTongDokan(ctx, shop.x, GROUND_Y, shop.poster);
+    renderTongDokan(ctx, shop.x, GROUND_Y, shop.poster, nightFactor);
   });
 
-  // Layer 3: Foreground Road (Dirt / cracked asphalt)
+  // Layer 3: Foreground Road
   const roadGrad = ctx.createLinearGradient(0, GROUND_Y, 0, GAME_HEIGHT);
-  roadGrad.addColorStop(0, '#a16207'); // Dusty golden clay dirt
-  roadGrad.addColorStop(0.3, '#78350f'); // Rich earth
-  roadGrad.addColorStop(1, '#451a03'); // Deep ground
+  roadGrad.addColorStop(0, timeEnv.roadTop);
+  roadGrad.addColorStop(0.3, timeEnv.roadMid);
+  roadGrad.addColorStop(1, timeEnv.roadBot);
   ctx.fillStyle = roadGrad;
   ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
 
   // Grass tufts along roadside
-  ctx.fillStyle = '#4d7c0f';
+  ctx.fillStyle = timeEnv.treeColor;
   for (let x = 0; x < GAME_WIDTH; x += 30) {
     const rawGX = x - roadOffset * 0.7;
     const gx = ((rawGX % GAME_WIDTH) + GAME_WIDTH) % GAME_WIDTH;
@@ -949,10 +1395,10 @@ function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops)
   }
 
   // Road markings / pebbles
-  ctx.fillStyle = '#fbbf24';
+  ctx.fillStyle = nightFactor > 0.5 ? '#94a3b8' : '#fbbf24';
   ctx.fillRect(0, GROUND_Y, GAME_WIDTH, 3);
 
-  ctx.fillStyle = '#b45309';
+  ctx.fillStyle = nightFactor > 0.5 ? '#475569' : '#b45309';
   for (let i = 0; i < 8; i++) {
     const rawRX = i * 130 - roadOffset * 1.5;
     const rx = ((rawRX % GAME_WIDTH) + GAME_WIDTH) % GAME_WIDTH;
@@ -961,7 +1407,7 @@ function renderParallax(ctx, skyOffset, farOffset, midOffset, roadOffset, shops)
 }
 
 // Draw authentic Bangladeshi Tong Dokan (চায়ের দোকান)
-function renderTongDokan(ctx, x, y, posterText) {
+function renderTongDokan(ctx, x, y, posterText, nightFactor = 0) {
   ctx.save();
   ctx.translate(x, y);
 
@@ -1007,6 +1453,26 @@ function renderTongDokan(ctx, x, y, posterText) {
   ctx.arc(135, -80, 5, 0, Math.PI * 2);
   ctx.fill();
 
+  // Warm Kerosene Lamp / Candle Glow inside Tong Dokan during Night Load-Shedding!
+  if (nightFactor > 0.25) {
+    ctx.save();
+    const lampGrad = ctx.createRadialGradient(80, -78, 4, 80, -78, 85);
+    lampGrad.addColorStop(0, `rgba(253, 224, 71, ${0.75 * nightFactor})`);
+    lampGrad.addColorStop(0.5, `rgba(251, 146, 60, ${0.3 * nightFactor})`);
+    lampGrad.addColorStop(1, 'rgba(251, 146, 60, 0)');
+    ctx.fillStyle = lampGrad;
+    ctx.beginPath();
+    ctx.arc(80, -78, 85, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hanging glowing Kupi / Hurricane bulb
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(80, -82, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Bengali satirical wall poster!
   ctx.fillStyle = '#fef08a';
   ctx.fillRect(20, -40, 105, 30);
@@ -1048,14 +1514,150 @@ function drawImageCover(ctx, img, dx, dy, dw, dh) {
   ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
-// 2. PROCEDURAL ARTICULATED LEADER WITH CUSTOM IMAGE RIG & FLAPPING CHICKEN
-function renderLeader(ctx, player, leaderImg, leaderImgLoaded) {
+// 2. PROCEDURAL ARTICULATED LEADER WITH CUSTOM IMAGE RIG, FLAPPING CHICKEN & CNG BIKE
+function renderLeader(ctx, player, leaderImg, leaderImgLoaded, nightFactor = 0) {
   ctx.save();
   ctx.translate(player.x, player.y);
 
-  // Running bounce calculation
-  const bounce = player.isGrounded ? Math.sin(player.runCycle * 2) * 2.5 : 0;
+  // Running or Bike engine vibration bounce
+  const bounce =
+    player.bikeTimer > 0
+      ? Math.sin(player.runCycle * 4) * 1.5
+      : player.isGrounded
+      ? Math.sin(player.runCycle * 2) * 2.5
+      : 0;
   ctx.translate(0, bounce);
+
+  // CNG / BIKE RUSH MODE RENDERING!
+  if (player.bikeTimer > 0) {
+    if (!player.isGrounded) {
+      ctx.rotate(-0.08); // Cool wheelie tilt in air!
+    }
+
+    // Night Headlight Beam (bright yellow cone lighting the road ahead!)
+    const beamGrad = ctx.createLinearGradient(34, -36, 260, -10);
+    beamGrad.addColorStop(0, `rgba(254, 240, 138, ${0.55 + nightFactor * 0.35})`);
+    beamGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+    ctx.fillStyle = beamGrad;
+    ctx.beginPath();
+    ctx.moveTo(34, -36);
+    ctx.lineTo(260, -75);
+    ctx.lineTo(260, 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Speed Boost Aura behind CNG
+    ctx.save();
+    ctx.strokeStyle = 'rgba(74, 222, 128, 0.7)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-55, -24);
+    ctx.lineTo(-85, -24);
+    ctx.moveTo(-50, -40);
+    ctx.lineTo(-78, -40);
+    ctx.stroke();
+    ctx.restore();
+
+    // Rear & Front Spinning Wheels
+    [-26, 26].forEach((wx) => {
+      ctx.save();
+      ctx.translate(wx, -13);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(0, 0, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      // Rotating wheel spoke
+      ctx.rotate(player.runCycle * 2);
+      ctx.beginPath();
+      ctx.moveTo(-6, 0);
+      ctx.lineTo(6, 0);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(0, 6);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // Classic Bangladeshi Green & Yellow CNG / Scooter Body
+    ctx.fillStyle = '#16a34a'; // Dhaka CNG Emerald Green
+    ctx.beginPath();
+    ctx.roundRect(-38, -42, 68, 22, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#14532d';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Yellow CNG accent stripe & front shield
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(-34, -29, 60, 5);
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.roundRect(14, -56, 20, 32, 6);
+    ctx.fill();
+
+    // Glowing Yellow Headlight
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(34, -36, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Leader sitting leaning forward on Bike/CNG
+    ctx.save();
+    ctx.translate(-4, 6);
+    ctx.rotate(0.18);
+
+    // Seated Leg resting on footrest
+    drawLeg(ctx, 2, -48, 0.95, 1.3, 22, 20, '#1e3a8a');
+
+    // Torso
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath();
+    ctx.roundRect(-14, -88, 30, 40, 6);
+    ctx.fill();
+
+    // Head
+    ctx.save();
+    ctx.translate(2, -88);
+    if (leaderImgLoaded && leaderImg && leaderImg.complete && leaderImg.naturalWidth > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(0, -25, 22, 26, 0, 0, Math.PI * 2);
+      ctx.clip();
+      drawImageCover(ctx, leaderImg, -24, -53, 48, 56);
+      ctx.restore();
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0, -25, 22, 26, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#fbcfe8';
+      ctx.beginPath();
+      ctx.arc(0, -20, 16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Right arm gripping handlebar
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(8, -76);
+    ctx.lineTo(26, -60);
+    ctx.stroke();
+
+    // Panicked Chicken perched right on the CNG front hood!
+    drawChicken(ctx, 24, -66, player.chickenFlap);
+
+    ctx.restore();
+    ctx.restore();
+    return;
+  }
 
   // Flying Kick Body Rotation
   if (player.isKicking) {
@@ -1064,6 +1666,17 @@ function renderLeader(ctx, player, leaderImg, leaderImgLoaded) {
     ctx.rotate(0.08); // Jump forward tilt
   } else {
     ctx.rotate(0.12); // Forward sprint lean
+  }
+
+  // Double-Jump Chicken Wing Flap Halo!
+  if (player.doubleJumpTimer > 0) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(254, 240, 138, 0.85)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(-6, -64, 30, 18, Math.sin(player.chickenFlap) * 0.4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Super Boost Glow Aura ("লিডার পাওয়ার!")
@@ -1339,13 +1952,29 @@ function drawChicken(ctx, cx, cy, flapPhase) {
   ctx.restore();
 }
 
-// 3. RENDER CHASING MOB (Left side angry villagers with lathi, jharu, hurricane)
-function renderMob(ctx, mob) {
+// 3. RENDER CHASING MOB (Left side angry villagers with lathi, jharu, flaming torches at night!)
+function renderMob(ctx, mob, nightFactor = 0) {
   ctx.save();
   ctx.translate(mob.currentX, GROUND_Y);
 
+  // Night Load-Shedding Sweeping Flashlight Cone & Torch Aura!
+  if (nightFactor > 0.2) {
+    ctx.save();
+    const beamGrad = ctx.createLinearGradient(10, -55, 290, -25);
+    beamGrad.addColorStop(0, `rgba(254, 240, 138, ${0.5 * nightFactor})`);
+    beamGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+    ctx.fillStyle = beamGrad;
+    ctx.beginPath();
+    ctx.moveTo(8, -55);
+    ctx.lineTo(290, -105);
+    ctx.lineTo(290, 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Dynamic dust cloud behind the mob
-  ctx.fillStyle = 'rgba(214, 196, 168, 0.55)';
+  ctx.fillStyle = nightFactor > 0.5 ? 'rgba(71, 85, 105, 0.5)' : 'rgba(214, 196, 168, 0.55)';
   for (let i = 0; i < 4; i++) {
     const cx = -60 + i * 25 + Math.sin(mob.runCycle + i) * 6;
     const cy = -30 + (i % 2) * 15;
@@ -1354,7 +1983,7 @@ function renderMob(ctx, mob) {
     ctx.fill();
   }
 
-  // Villager 1: Village Elder / Matbor (Gray beard, white kurta, waving big bamboo Lathi!)
+  // Villager 1: Village Elder / Matbor (Waving Bamboo Lathi or Torch at night!)
   drawMobMember(
     ctx,
     0,
@@ -1362,8 +1991,9 @@ function renderMob(ctx, mob) {
     mob.runCycle,
     '#f8fafc',
     '#334155',
-    'lathi',
-    'elder'
+    nightFactor > 0.35 ? 'torch' : 'lathi',
+    'elder',
+    nightFactor
   );
 
   // Villager 2: Furious Youth in rolled green lungi waving Broom (ঝাড়ু)
@@ -1375,7 +2005,8 @@ function renderMob(ctx, mob) {
     '#15803d',
     '#1e293b',
     'jharu',
-    'youth'
+    'youth',
+    nightFactor
   );
 
   // Villager 3: Angry Aunty in red saree brandishing a Sandal high
@@ -1386,8 +2017,9 @@ function renderMob(ctx, mob) {
     mob.runCycle + 2.4,
     '#dc2626',
     '#fef08a',
-    'sandal',
-    'aunty'
+    nightFactor > 0.35 ? 'torch' : 'sandal',
+    'aunty',
+    nightFactor
   );
 
   // Villager 4: Chacha with orange gamchha carrying Hurricane lantern (হারিকেন)
@@ -1399,7 +2031,8 @@ function renderMob(ctx, mob) {
     '#ea580c',
     '#475569',
     'hurricane',
-    'chacha'
+    'chacha',
+    nightFactor
   );
 
   // Speech bubble above mob!
@@ -1423,8 +2056,8 @@ function renderMob(ctx, mob) {
   ctx.restore();
 }
 
-// Draw individual mob member with weapon
-function drawMobMember(ctx, ox, oy, phase, shirtColor, lungiColor, weapon, type) {
+// Draw individual mob member with weapon (supports flaming torch at night!)
+function drawMobMember(ctx, ox, oy, phase, shirtColor, lungiColor, weapon, type, nightFactor = 0) {
   ctx.save();
   ctx.translate(ox, oy);
 
@@ -1477,7 +2110,35 @@ function drawMobMember(ctx, ox, oy, phase, shirtColor, lungiColor, weapon, type)
   ctx.translate(6, -45);
   ctx.rotate(-0.8 + weaponWave);
 
-  if (weapon === 'lathi') {
+  if (weapon === 'torch') {
+    // Flaming Bamboo Torch (মশাল!) with flickering flame & halo
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(20, -28);
+    ctx.stroke();
+
+    const flicker = Math.sin(phase * 3) * 2.5;
+    const glow = ctx.createRadialGradient(22, -34, 2, 22, -34, 38);
+    glow.addColorStop(0, 'rgba(253, 224, 71, 0.95)');
+    glow.addColorStop(0.45, 'rgba(249, 115, 22, 0.5)');
+    glow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(22, -34, 38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Flame teardrop
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.ellipse(22, -34, 7, 12 + flicker * 0.4, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.ellipse(22, -32, 4, 7, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weapon === 'lathi') {
     // Bamboo stick (লাঠি)
     ctx.strokeStyle = '#78350f';
     ctx.lineWidth = 4;
@@ -1502,7 +2163,16 @@ function drawMobMember(ctx, ox, oy, phase, shirtColor, lungiColor, weapon, type)
     ctx.fillStyle = '#3b82f6';
     ctx.fillRect(8, -25, 14, 7);
   } else if (weapon === 'hurricane') {
-    // Hurricane lamp
+    // Hurricane lamp (extra bright at night)
+    if (nightFactor > 0.2) {
+      const hGlow = ctx.createRadialGradient(13, -18, 2, 13, -18, 30);
+      hGlow.addColorStop(0, `rgba(254, 240, 138, ${0.8 * nightFactor})`);
+      hGlow.addColorStop(1, 'rgba(254, 240, 138, 0)');
+      ctx.fillStyle = hGlow;
+      ctx.beginPath();
+      ctx.arc(13, -18, 30, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = '#64748b';
     ctx.fillRect(6, -24, 10, 14);
     ctx.fillStyle = '#fef08a';
@@ -1568,6 +2238,23 @@ function renderObstacles(ctx, obstacles) {
       ctx.fillStyle = '#f8fafc';
       ctx.font = 'bold 9px sans-serif';
       ctx.fillText('zZ', 10, -20);
+    } else if (obs.type === 'mud_puddle') {
+      // Glossy Brown Mud / Cow Dung Puddle (পিছলা কাদা!)
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 38, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#713f12';
+      ctx.beginPath();
+      ctx.ellipse(-6, 1, 24, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glossy mud highlight & tiny puddle bubbles
+      ctx.fillStyle = '#a16207';
+      ctx.beginPath();
+      ctx.ellipse(10, 0, 8, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
     } else {
       // Speed Breaker
       ctx.fillStyle = '#fbbf24';
@@ -1584,42 +2271,117 @@ function renderObstacles(ctx, obstacles) {
   });
 }
 
-// 5. RENDER ROADSIDE ENERGY DRINKS (দোকানের এনার্জি ড্রিংক)
+// 4B. RENDER FLYING SANDALS (উড়ন্ত স্যান্ডেল)
+function renderSandals(ctx, sandals) {
+  sandals.forEach((s) => {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+
+    // Speed trail lines behind flying sandal
+    if (!s.deflected) {
+      ctx.strokeStyle = 'rgba(248, 113, 113, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(16, -4);
+      ctx.lineTo(36, -4);
+      ctx.moveTo(18, 4);
+      ctx.lineTo(32, 4);
+      ctx.stroke();
+    }
+
+    ctx.rotate(s.rot);
+    // Classic Blue & White Bata Sponge Sandal
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath();
+    ctx.roundRect(-15, -7, 30, 14, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Sandal V-strap
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-6, -5);
+    ctx.lineTo(6, 0);
+    ctx.lineTo(-6, 5);
+    ctx.stroke();
+
+    ctx.restore();
+  });
+}
+
+// 5. RENDER ROADSIDE ENERGY DRINKS & CNG/BIKE RUSH PICKUPS
 function renderPickups(ctx, pickups) {
   pickups.forEach((p) => {
     ctx.save();
     const bob = Math.sin(p.floatPhase) * 6;
     ctx.translate(p.x, p.y + bob);
 
-    // Glowing Neon Aura
-    ctx.shadowColor = '#38bdf8';
-    ctx.shadowBlur = 14;
+    if (p.type === 'bike_rush') {
+      // Glowing Emerald & Gold CNG / Bike Rush Pickup!
+      ctx.shadowColor = '#22c55e';
+      ctx.shadowBlur = 18;
 
-    // Glass bottle / Energy Drink Can (Speed / Tiger vibe)
-    const canGrad = ctx.createLinearGradient(-10, -20, 10, 20);
-    canGrad.addColorStop(0, '#0284c7');
-    canGrad.addColorStop(0.5, '#38bdf8');
-    canGrad.addColorStop(1, '#0369a1');
-    ctx.fillStyle = canGrad;
-    ctx.beginPath();
-    ctx.roundRect(-10, -18, 20, 36, 4);
-    ctx.fill();
+      // Circular power emblem background
+      ctx.fillStyle = 'rgba(20, 83, 45, 0.85)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
 
-    // Golden lightning bolt symbol ⚡
-    ctx.fillStyle = '#fef08a';
-    ctx.beginPath();
-    ctx.moveTo(1, -10);
-    ctx.lineTo(-4, 0);
-    ctx.lineTo(2, 0);
-    ctx.lineTo(-2, 10);
-    ctx.lineTo(5, -1);
-    ctx.lineTo(-1, -1);
-    ctx.closePath();
-    ctx.fill();
+      // Mini CNG Scooter icon
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.roundRect(-14, -8, 26, 12, 4);
+      ctx.fill();
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-10, -2, 18, 3);
+      // Wheels
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-8, 6, 5, 0, Math.PI * 2);
+      ctx.arc(8, 6, 5, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Bottle cap
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillRect(-6, -23, 12, 5);
+      ctx.fillStyle = '#fef08a';
+      ctx.font = 'bold 10px "Hind Siliguri", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('সিএনজি!', 0, -28);
+    } else {
+      // Glowing Neon Aura
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 14;
+
+      // Glass bottle / Energy Drink Can
+      const canGrad = ctx.createLinearGradient(-10, -20, 10, 20);
+      canGrad.addColorStop(0, '#0284c7');
+      canGrad.addColorStop(0.5, '#38bdf8');
+      canGrad.addColorStop(1, '#0369a1');
+      ctx.fillStyle = canGrad;
+      ctx.beginPath();
+      ctx.roundRect(-10, -18, 20, 36, 4);
+      ctx.fill();
+
+      // Golden lightning bolt symbol ⚡
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.moveTo(1, -10);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(2, 0);
+      ctx.lineTo(-2, 10);
+      ctx.lineTo(5, -1);
+      ctx.lineTo(-1, -1);
+      ctx.closePath();
+      ctx.fill();
+
+      // Bottle cap
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-6, -23, 12, 5);
+    }
 
     ctx.restore();
   });
@@ -1806,7 +2568,7 @@ function renderParticles(ctx, particles) {
 function renderFloaters(ctx, floaters) {
   floaters.forEach((f) => {
     f.y += f.vy;
-    f.alpha -= 0.025;
+    f.alpha -= f.life > 45 ? 0.012 : 0.025;
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, f.alpha);

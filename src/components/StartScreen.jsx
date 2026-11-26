@@ -89,20 +89,20 @@ const StartScreen = ({
       <div className="controls-guide">
         <div className="control-card">
           <span className="control-icon">⌨️ / ⬆</span>
-          <strong>লাফ (JUMP)</strong>
-          <span>Space / Up / W / বামে ট্যাপ</span>
+          <strong>লাফ / ডাবল লাফ</strong>
+          <span>Space / Up / বামে ট্যাপ (২x ডানা ঝাপটায়!)</span>
         </div>
 
         <div className="control-card">
           <span className="control-icon">💥 / ➡️</span>
           <strong>লাত্থি (KICK)</strong>
-          <span>D / Right / Enter / ডানে ট্যাপ</span>
+          <span>D / Right / ডানে ট্যাপ (উড়ন্ত স্যান্ডেলও ভাঙুন!)</span>
         </div>
 
         <div className="control-card">
-          <span className="control-icon">⚡</span>
-          <strong>এনার্জি ড্রিংক</strong>
-          <span>স্পিড বুস্ট ও স্ট্যামিনা রিফিল</span>
+          <span className="control-icon">⚡ / 🛺</span>
+          <strong>ড্রিংক ও সিএনজি রাশ</strong>
+          <span>স্পিড বুস্ট, স্ট্যামিনা ও অপ্রতিরোধ্য বাইক!</span>
         </div>
       </div>
 

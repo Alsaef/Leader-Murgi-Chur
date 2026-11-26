@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CHAT_PHRASES } from '../utils/constants';
+import { CHAT_PHRASES, getLeaderRank } from '../utils/constants';
 import { generateScoreCardBlob } from '../utils/scoreCardGenerator';
 
 const GameOverModal = ({ stats, highScore, onRestart }) => {
@@ -12,6 +12,7 @@ const GameOverModal = ({ stats, highScore, onRestart }) => {
   const [sharing, setSharing] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
   const isNewRecord = (stats.score || 0) >= (highScore || 0) && (stats.score || 0) > 0;
+  const rank = getLeaderRank(stats.score || 0);
 
   useEffect(() => {
     // Grace period before keyboard restart to prevent accidental skip from rapid key taps
@@ -51,7 +52,7 @@ const GameOverModal = ({ stats, highScore, onRestart }) => {
       stats.kicks || 0
     )} জনকে লাত্থি মারছি! মোট স্কোর: ${toBengaliNumber(
       stats.score || 0
-    )}। পারলে আমার রেকর্ড ভাঙো! 🐔🏃💨\n\nগেম লিংক: ${shareUrl}`;
+    )} (${rank.badge} পদবি: ${rank.title})। পারলে আমার রেকর্ড ভাঙো! 🐔🏃💨\n\nগেম লিংক: ${shareUrl}`;
 
     try {
       // 1. Generate high-quality scorecard image via HTML5 Canvas
@@ -147,6 +148,21 @@ const GameOverModal = ({ stats, highScore, onRestart }) => {
             🌟 নতুন সেরা রেকর্ড! সাবাশ লিডার! 🌟
           </div>
         )}
+
+        {/* Earned Leader Rank Badge */}
+        <div
+          className="gameover-rank-banner"
+          style={{ background: rank.bg, borderColor: rank.border }}
+        >
+          <span className="rank-badge-icon">{rank.badge}</span>
+          <div className="rank-info">
+            <span className="rank-label">অর্জিত পদবি:</span>
+            <strong className="rank-title" style={{ color: rank.color }}>
+              {rank.title}
+            </strong>
+            <span className="rank-sub">{rank.subtitle}</span>
+          </div>
+        </div>
 
         {/* Detailed Match Statistics */}
         <div className="stats-grid">
